@@ -14,17 +14,21 @@ import (
 
 var (
 	// CPU metrics
-	cpuUsageTotal = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cpu_usage_total",
-		Help: "Total CPU usage percentage",
-	})
-
 	cpuUsagePerCore = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "cpu_usage_per_core",
 			Help: "CPU usage percentage per core",
 		},
 		[]string{"core"},
+	)
+
+	cpuUsageSummary = prometheus.NewSummary(
+		prometheus.SummaryOpts{
+			Name:       "cpu_usage_summary",
+			Help:       "Summary of overall CPU usage percentage over time",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001}, // 记录中位数、90分位和99分位数
+			MaxAge:     time.Minute * 5,                                        // 5分钟的时间窗口
+		},
 	)
 
 	// Memory metrics
@@ -51,8 +55,8 @@ var (
 
 func init() {
 	// Register all metrics
-	prometheus.MustRegister(cpuUsageTotal)
 	prometheus.MustRegister(cpuUsagePerCore)
+	prometheus.MustRegister(cpuUsageSummary)
 	prometheus.MustRegister(memoryTotal)
 	prometheus.MustRegister(memoryUsed)
 	prometheus.MustRegister(memoryFree)
@@ -66,12 +70,19 @@ func collectMetrics() {
 		if err != nil {
 			log.Printf("Error collecting CPU metrics: %v", err)
 		} else {
-			var total float64
+			// Record per-core metrics
 			for i, percentage := range percentages {
-				cpuUsagePerCore.WithLabelValues(fmt.Sprintf("%d", i)).Set(percentage)
+				core := fmt.Sprintf("%d", i)
+				cpuUsagePerCore.WithLabelValues(core).Set(percentage)
+			}
+
+			// Calculate and record average CPU usage for summary
+			var total float64
+			for _, percentage := range percentages {
 				total += percentage
 			}
-			cpuUsageTotal.Set(total / float64(len(percentages)))
+			average := total / float64(len(percentages))
+			cpuUsageSummary.Observe(average)
 		}
 
 		// Collect memory information
@@ -93,7 +104,6 @@ func main() {
 	// Start metrics collection
 	go collectMetrics()
 
-	// Setup HTTP server
 	http.Handle("/metrics", promhttp.Handler())
 	log.Println("Starting server on :2112")
 	log.Fatal(http.ListenAndServe(":2112", nil))

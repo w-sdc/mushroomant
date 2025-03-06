@@ -14,7 +14,7 @@ export default defineConfig({
       ],
       input: {
         main: resolve(__dirname, 'index.html'),
-        //nested: resolve(__dirname, 'asserts/index.html'),
+        ctrplane: resolve(__dirname, 'subpages/ctrplane.html'),
       },
     },
   },
